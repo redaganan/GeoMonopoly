@@ -33,6 +33,7 @@ export default function Dashboard(){
   const socketRef = useRef(null);
 
   const [flash,setFlash] = useState({});
+  const [unlocked,setUnlocked] = useState([]);
   useEffect(()=>{
     const token = localStorage.getItem('token');
     if(token){
@@ -50,6 +51,14 @@ export default function Dashboard(){
   },[]);
 
   const updateOwner = (tid, owner)=> setTerritories(t=>t.map(x=> x.id===tid ? { ...x, owner } : x));
+  const updateUnlocked = (ids)=>{
+    if(!Array.isArray(ids)) ids = [];
+    setUnlocked(prev=>{
+      const next = Array.from(new Set([...prev,...ids]));
+      setTerritories(t=> t.map(x=> next.includes(x.id) ? { ...x, unlocked:true } : x));
+      return next;
+    });
+  };
   const updateOwnerAndFlash = (tid, owner)=>{
     updateOwner(tid, owner);
     setFlash(f=>({...f,[tid]:true}));
@@ -62,19 +71,54 @@ export default function Dashboard(){
     try{
       const token = localStorage.getItem('token');
       const res = await fetch(`${API}/buy-territory`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`}, body:JSON.stringify({ territoryId:selectedTerr.id }) });
-      const j = await res.json(); if(j.ok) setWallet(j.wallet);
+      const j = await res.json(); if(j.ok){ setWallet(j.wallet); updateOwner(selectedTerr.id, userId); }
     }catch(e){ console.error(e); }
   };
   const handleHostile = async ()=>{
     try{
       const token = localStorage.getItem('token');
       const res = await fetch(`${API}/hostile-takeover`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`}, body:JSON.stringify({ territoryId:selectedTerr.id, speed:15 }) });
-      const j = await res.json(); if(j.ok) setWallet(j.wallet);
+      const j = await res.json(); if(j.ok){ setWallet(j.wallet); updateOwner(selectedTerr.id, userId); }
     }catch(e){ console.error(e); }
   };
 
   const center = [14.587,120.98];
   const bounds = territories.map(t=>bboxToPolygon(t.bbox)).flat();
+
+  // simulation helpers
+  const makeTimestamps = (n, interval=20)=>{ const now=Math.floor(Date.now()/1000); return Array.from({length:n},(_,i)=> now + i*interval); };
+  const simulateRun = async (points, sectorTag)=>{
+    try{
+      const token = localStorage.getItem('token'); if(!token) return alert('Login required');
+      const payload = { routeCoordinates: points, durationSeconds: points.length*20, averageSpeed:8, sectorTag };
+      const res = await fetch(`${API}/run/upload-track`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body:JSON.stringify(payload) });
+      const j = await res.json();
+      if(j.ok){
+        const r = j.result || j;
+        const ids = r.unlocked_sectors || j.unlocked_sectors || [];
+        updateUnlocked(ids);
+        if(typeof j.wallet !== 'undefined') setWallet(j.wallet);
+        else if(typeof r.wallet !== 'undefined') setWallet(r.wallet);
+        if(r.total_km) setKms(k=>Math.round((k + Number(r.total_km))*100)/100);
+        // also update territories coloring immediately
+        setTerritories(t=> t.map(x=> ids.includes(x.id) ? { ...x, unlocked:true } : x));
+        alert('Run processed: reward ₱'+(j.reward||0));
+      } else { alert('Run failed'); }
+    }catch(e){ console.error(e); }
+  };
+  const simulateTaftRun = ()=>{
+    const ts = makeTimestamps(8,20);
+    const pts = [
+      [14.570,120.982,ts[0]],[14.571,120.983,ts[1]],[14.572,120.984,ts[2]],[14.573,120.985,ts[3]],
+      [14.574,120.986,ts[4]],[14.5745,120.9865,ts[5]],[14.5735,120.9855,ts[6]],[14.5725,120.9845,ts[7]]
+    ]; simulateRun(pts, 'MNL_TAFT_01');
+  };
+  const simulateIntramurosRun = ()=>{
+    const ts = makeTimestamps(6,20);
+    const pts = [
+      [14.588,120.973,ts[0]],[14.589,120.974,ts[1]],[14.5895,120.9745,ts[2]],[14.589,120.975,ts[3]],[14.5885,120.9745,ts[4]],[14.588,120.974,ts[5]]
+    ]; simulateRun(pts, 'MNL_INTRA_01');
+  };
 
   return (
     <div className="h-screen w-screen relative">
@@ -86,7 +130,8 @@ export default function Dashboard(){
         {territories.map(t=>{
           const poly = bboxToPolygon(t.bbox);
           const owned = !!t.owner;
-          const color = owned ? 'var(--neon-red)' : 'var(--neon-green)';
+          const isUnlocked = !!t.unlocked || unlocked.includes(t.id);
+          const color = owned ? 'var(--neon-red)' : (isUnlocked ? 'var(--neon-green)' : 'var(--neon-yellow)');
           return (
             <Polygon
               key={t.id}
@@ -137,10 +182,14 @@ export default function Dashboard(){
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={handleBuy} className="flex-1 py-2 rounded bg-[var(--neon-green)] text-black font-semibold">Buy</button>
+        <button onClick={handleBuy} disabled={!unlocked.includes(selectedTerr.id)} className={`${unlocked.includes(selectedTerr.id)?'flex-1 py-2 rounded bg-[var(--neon-green)] text-black font-semibold':'flex-1 py-2 rounded bg-gray-600 text-gray-300 font-semibold cursor-not-allowed'}`}>Buy</button>
           <button onClick={handleHostile} className="flex-1 py-2 rounded bg-[var(--neon-red)] text-white font-semibold">Hostile</button>
         </div>
         <div className="mt-3 text-xs text-gray-400">Tip: Click polygon to select territory. Live updates via socket.</div>
+        <div className="mt-2 flex gap-2">
+        <button onClick={simulateTaftRun} className="text-xs px-2 py-1 rounded bg-blue-600/80">Simulate Taft Avenue Run</button>
+        <button onClick={simulateIntramurosRun} className="text-xs px-2 py-1 rounded bg-purple-600/80">Simulate Intramuros Run</button>
+        </div>
       </div>
     </div>
   );

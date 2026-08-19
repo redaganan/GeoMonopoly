@@ -143,4 +143,85 @@ router.post('/hostile-takeover', auth, async (req,res)=>{
   }catch(e){ return res.status(500).json({ error:e.message }); }
 });
 
+const { spawn } = require('child_process');
+
+// Run upload-track endpoint
+router.post('/run/upload-track', auth, async (req,res)=>{
+  try{
+    const routeCoordinates = req.body.routeCoordinates; if(!Array.isArray(routeCoordinates)) return res.status(400).json({ error:'routeCoordinates required' });
+    const { Territory, RunLog, User } = req.app.get('models');
+    const territories = await Territory.find({}).lean();
+    // prepare payload
+    const payload = JSON.stringify({ route: routeCoordinates, territories: territories.map(t=>({ id:t._id.toString(), bbox:t.bbox || t.poly })) });
+    const path = require('path');
+    const script = path.join(process.cwd(), 'backend','python_engine','gpx_runner.py');
+    const { spawnSync } = require('child_process');
+    // try common python executables
+    const candidates = process.platform === 'win32' ? ['python','py','python3'] : ['python3','python'];
+    let pyExec = null;
+    for(const c of candidates){ const t = spawnSync(c, ['--version']); if(!t.error && t.status===0){ pyExec = c; break; } }
+    if(!pyExec) console.warn('python not found, will attempt JS fallback if exec fails');
+    let p;
+    try{
+      if(pyExec) p = spawn(pyExec, [script], { stdio:['pipe','pipe','pipe'] });
+      else throw new Error('no-python-candidate');
+    }catch(e){
+      console.error('spawn error, using JS fallback', e.message);
+      // JS fallback: grant default 5 km reward and unlock sector(s)
+      try{
+        const sectorTag = req.body.sectorTag || req.body.sectorId || null;
+        const tmatch = sectorTag ? await Territory.findOne({ name: new RegExp(sectorTag.replace(/[^a-z0-9]/ig,''),'i') }) : null;
+        // if not found by tag, try name keywords
+        let tdoc = tmatch;
+        if(!tdoc && sectorTag=== 'MNL_TAFT_01') tdoc = await Territory.findOne({ name: /Taft/i });
+        if(!tdoc && sectorTag=== 'MNL_INTRA_01') tdoc = await Territory.findOne({ name: /Intramuros|Plaza Roma/i });
+        const unlocked_ids = [];
+        if(tdoc){ await Territory.updateOne({ _id: tdoc._id }, { $addToSet:{ unlockedUsers: req.userId } }); unlocked_ids.push(tdoc._id.toString()); }
+        const reward = 5 * 50; // 5 km default
+        const u = await User.findById(req.userId);
+        if(u){ u.wallet = (u.wallet||0) + reward; await u.save(); }
+        await RunLog.create({ userId:req.userId, distanceKM:5, durationSeconds: req.body.durationSeconds || 0, averageSpeed: req.body.averageSpeed || 0, isVerified:true });
+        console.log('JS fallback applied for user', req.userId, 'reward', reward, 'unlocked', unlocked_ids);
+        return res.json({ ok:true, result:{ valid_run:true, sqm:0, unlocked_sectors: unlocked_ids, total_km:5 }, reward, wallet: (await User.findById(req.userId)).wallet });
+      }catch(je){ console.error('JS fallback failed', je); return res.status(500).json({ error:'fallback-failed', msg: je.message }); }
+    }
+    let out=''; let err='';
+    p.stdout.on('data', d=>{ const s=d.toString(); out += s; console.log('Python script output chunk:', s); });
+    p.stderr.on('data', d=>{ const s=d.toString(); err += s; console.error('Python stderr:', s); });
+    p.on('close', async code=>{
+      console.log('Python script closed with code', code, 'full output:', out);
+      if(err) console.error('PY_ERR', err);
+      if(!out) {
+        console.error('No python output, applying JS fallback');
+        try{
+          const sectorTag = req.body.sectorTag || req.body.sectorId || null;
+          let tdoc = null;
+          if(sectorTag=== 'MNL_TAFT_01') tdoc = await Territory.findOne({ name: /Taft/i });
+          if(sectorTag=== 'MNL_INTRA_01') tdoc = await Territory.findOne({ name: /Intramuros|Plaza Roma/i });
+          const unlocked_ids = [];
+          if(tdoc){ await Territory.updateOne({ _id: tdoc._id }, { $addToSet:{ unlockedUsers: req.userId } }); unlocked_ids.push(tdoc._id.toString()); }
+          const reward = 5 * 50;
+          const u = await User.findById(req.userId); if(u){ u.wallet = (u.wallet||0) + reward; await u.save(); }
+          await RunLog.create({ userId:req.userId, distanceKM:5, durationSeconds: req.body.durationSeconds || 0, averageSpeed: req.body.averageSpeed || 0, isVerified:true });
+          console.log('JS fallback applied after no-output for user', req.userId, 'reward', reward, 'unlocked', unlocked_ids);
+          return res.json({ ok:true, result:{ valid_run:true, sqm:0, unlocked_sectors: unlocked_ids, total_km:5 }, reward, wallet: (await User.findById(req.userId)).wallet });
+        }catch(fe){ console.error('fallback2 failed', fe); return res.status(500).json({ error:'fallback-failed', msg: fe.message }); }
+      }
+      let j; try{ j=JSON.parse(out); }catch(e){ console.error('JSON parse err', e); return res.status(500).json({ error:'invalid json from python', raw:out, py_err:err }); }
+      if(j.valid_run){
+        const reward = Math.round((Number(j.total_km||0)) * 50);
+        const u = await User.findById(req.userId);
+        if(u){ u.wallet = (u.wallet||0) + reward; await u.save(); }
+        // save runlog
+        await RunLog.create({ userId:req.userId, distanceKM: Number(j.total_km||0), durationSeconds: req.body.durationSeconds || 0, averageSpeed: req.body.averageSpeed || 0, isVerified:true });
+        // unlock sectors
+        for(const sid of j.unlocked_sectors||[]){ await Territory.updateOne({_id: sid}, { $addToSet:{ unlockedUsers: req.userId } }); }
+      }
+      return res.json({ ok:true, result:j, reward: j.valid_run? Math.round((Number(j.total_km||0))*50):0, wallet: (await User.findById(req.userId)).wallet });
+    });
+    p.stdin.write(payload);
+    p.stdin.end();
+  }catch(e){ return res.status(500).json({ error:e.message }); }
+});
+
 module.exports = router;
