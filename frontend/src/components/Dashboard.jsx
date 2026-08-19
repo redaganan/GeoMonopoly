@@ -4,7 +4,6 @@ import { io } from 'socket.io-client';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 const SOCKET = import.meta.env.VITE_SOCKET_URL || 'http://localhost:4000';
-const TEST_USER = import.meta.env.VITE_TEST_USER_ID || '6a8576953d08ecff83214952'; // Runner_Malate from seed
 
 const territoriesInit = [
   { id:'6a8576953d08ecff83214954', name:'Taft Avenue', bbox:[14.568,120.976,14.576,120.988], owner:null },
@@ -25,17 +24,26 @@ function FlyToBounds({ bounds }){
 export default function Dashboard(){
   const [territories,setTerritories] = useState(territoriesInit);
   const [selected,setSelected] = useState(territoriesInit[0].id);
-  const [wallet,setWallet] = useState(5000);
+  const [wallet,setWallet] = useState(0);
   const [kms,setKms] = useState(0);
-  const [faction] = useState('Neon Runners');
+  const [username,setUsername] = useState('');
+  const [faction,setFaction] = useState('');
+  const [userId,setUserId] = useState(null);
+  const userIdRef = useRef(null);
   const socketRef = useRef(null);
 
   const [flash,setFlash] = useState({});
   useEffect(()=>{
+    const token = localStorage.getItem('token');
+    if(token){
+      fetch(`${API}/auth/me`, { headers:{ Authorization:`Bearer ${token}` } })
+        .then(r=>r.json()).then(j=>{ if(j.ok){ setUsername(j.username); setFaction(j.faction); setWallet(j.php_wallet); setKms(j.total_km); setUserId(j.id); userIdRef.current = j.id; } }).catch(()=>{});
+    }
+
     const s = io(SOCKET, { transports:['websocket'], autoConnect:true });
     socketRef.current = s;
     s.on('connect', ()=>console.log('socket connected', s.id));
-    s.on('wallet', ({ userId, wallet })=>{ if(String(userId)===String(TEST_USER)) setWallet(wallet); });
+    s.on('wallet', ({ userId:uid, wallet:wt })=>{ if(String(uid)===String(userIdRef.current)) setWallet(wt); });
     s.on('territory:buy', ({ territoryId, owner })=> updateOwnerAndFlash(territoryId, owner));
     s.on('territory:hostile', ({ territoryId, owner })=> updateOwnerAndFlash(territoryId, owner));
     return ()=>{ s.disconnect(); };
@@ -52,13 +60,15 @@ export default function Dashboard(){
 
   const handleBuy = async ()=>{
     try{
-      const res = await fetch(`${API}/buy-territory`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId:TEST_USER, territoryId:selectedTerr.id }) });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/buy-territory`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`}, body:JSON.stringify({ territoryId:selectedTerr.id }) });
       const j = await res.json(); if(j.ok) setWallet(j.wallet);
     }catch(e){ console.error(e); }
   };
   const handleHostile = async ()=>{
     try{
-      const res = await fetch(`${API}/hostile-takeover`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ challengerId:TEST_USER, territoryId:selectedTerr.id, speed:15 }) });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API}/hostile-takeover`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`}, body:JSON.stringify({ territoryId:selectedTerr.id, speed:15 }) });
       const j = await res.json(); if(j.ok) setWallet(j.wallet);
     }catch(e){ console.error(e); }
   };
@@ -87,7 +97,7 @@ export default function Dashboard(){
               <Tooltip direction="top" offset={[0,-6]} opacity={0.95}>
                 <div className="text-xs">
                   <div className="font-semibold">{t.name}</div>
-                  <div className="text-[11px] text-gray-200">{t.owner ? (String(t.owner)===String(TEST_USER)?'Owner: You':`Owner: ${String(t.owner).slice(0,6)}...`) : 'Unowned - Neon Grid'}</div>
+                  <div className="text-[11px] text-gray-200">{t.owner ? (String(t.owner)===String(userIdRef.current)?'Owner: You':`Owner: ${String(t.owner).slice(0,6)}...`) : 'Unowned - Neon Grid'}</div>
                 </div>
               </Tooltip>
             </Polygon>
@@ -101,12 +111,16 @@ export default function Dashboard(){
         <div className="flex items-center justify-between mb-2">
           <div>
             <div className="text-xs text-gray-300">Profile</div>
-            <div className="text-lg font-bold glow">Runner_Malate</div>
+            <div className="text-lg font-bold glow">{username || 'Guest'}</div>
           </div>
           <div className="text-right">
             <div className="text-xs text-gray-400">Faction</div>
-            <div className="font-semibold text-neon-blue">{faction}</div>
+            <div className="font-semibold text-neon-blue">{faction || '—'}</div>
           </div>
+        </div>
+        <div className="flex justify-between items-center mb-2">
+          <button onClick={()=>{ localStorage.removeItem('token'); location.reload(); }} className="text-xs px-2 py-1 rounded bg-red-600/80">Sign Out</button>
+          <div className="text-xs text-gray-400">ID: {userId ? String(userId).slice(0,8) : '-'}</div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center mb-3">
           <div>
