@@ -10,10 +10,31 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-:root{--cyber-dark:#0b0f1a;--neon-blue:#00f0ff;--neon-green:#39ff14;--neon-red:#ff2d95}html,body,#root{height:100%}body{background:radial-gradient(600px 300px at 10% 10%, rgba(0,240,255,0.04), transparent 10%), linear-gradient(180deg,#02040a 0%, #06101a 100%);color:white;font-family:ui-sans-serif,system-ui,'Segoe UI',Roboto,Helvetica,Arial;-webkit-font-smoothing:antialiased;background-color:var(--cyber-dark)}.hud{padding:.75rem;border-radius:.5rem;border:1px solid rgba(0,240,255,0.12);background:rgba(0,0,0,.4);font-size:.875rem}.glow{color:var(--neon-blue);text-shadow:0 0 8px rgba(0,240,255,.6)}.app-map{height:100vh;width:100%}
-/* neon flash for polygon */
-.leaflet-interactive.neon-flash{filter:drop-shadow(0 0 10px rgba(57,255,20,0.9)) drop-shadow(0 0 18px rgba(0,240,255,0.12));stroke-width:3.5 !important;animation:neonPulse 1s ease-in-out 2}
-@keyframes neonPulse{0%{opacity:1}50%{opacity:0.35;transform:scale(1.01)}100%{opacity:1}}
+:root{--cyber-dark:#0b0f1a;--neon-blue:#00f0ff;--neon-green:#39ff14;--neon-red:#ff2d95;--neon-yellow:#ffd24d}
+html,body,#root{height:100%}
+body{background:radial-gradient(600px 300px at 10% 10%, rgba(0,240,255,0.04), transparent 10%), linear-gradient(180deg,#02040a 0%, #06101a 100%);color:white;font-family:ui-sans-serif,system-ui,'Segoe UI',Roboto,Helvetica,Arial;-webkit-font-smoothing:antialiased;background-color:var(--cyber-dark)}
+.app-map{height:100vh;width:100%}
+.hud{padding:.75rem;border-radius:.5rem;border:1px solid rgba(0,240,255,0.12);background:rgba(0,0,0,.45);font-size:.875rem}
+.glow{color:var(--neon-blue);text-shadow:0 0 8px rgba(0,240,255,.6)}
+
+/* neon pulse expands shadow and fades */
+@keyframes neonPulse{0%{filter:drop-shadow(0 0 6px rgba(57,255,20,0.6));opacity:1;transform:scale(1)}50%{filter:drop-shadow(0 0 20px rgba(57,255,20,0.95));opacity:0.5;transform:scale(1.02)}100%{filter:drop-shadow(0 0 6px rgba(57,255,20,0.6));opacity:1;transform:scale(1)}}
+.leaflet-interactive.neon-flash{animation:neonPulse 1s ease-in-out 2}
+
+/* runner marker */
+.runner-marker .runner-dot{width:18px;height:18px;border-radius:999px;background:linear-gradient(135deg,var(--neon-green),var(--neon-blue));box-shadow:0 0 8px rgba(57,255,20,0.9),0 0 18px rgba(0,240,255,0.12);border:2px solid rgba(255,255,255,0.06);transform:translate(-50%,-50%)}
+
+/* mini-card slide-up */
+.mini-card{position:fixed;left:50%;transform:translateX(-50%) translateY(120%);bottom:1rem;width:min(560px,90%);background:linear-gradient(180deg,rgba(6,10,16,0.95),rgba(2,6,10,0.9));border:1px solid rgba(0,240,255,0.08);backdrop-filter:blur(6px);padding:12px;border-radius:10px;z-index:9998;transition:transform .36s cubic-bezier(.2,.9,.2,1),opacity .28s;opacity:0}
+.mini-card.open{transform:translateX(-50%) translateY(0%);opacity:1}
+.mini-head{display:flex;justify-content:space-between;align-items:center}
+
+/* activity feed */
+.activity-feed{display:flex;flex-direction:column-reverse;gap:6px}
+.feed-item{opacity:.95}
+
+/* small responsive tweaks */
+@media (max-width:640px){ .hud{width:92% !important} .mini-card{width:95%} }
     </style>
   </head>
   <body>
