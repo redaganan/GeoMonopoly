@@ -1,0 +1,18 @@
+/* Minimal custom CSS; Tailwind utilities loaded via CDN in index.html */
+:root {
+  --cyber-dark: #0b0f1a;
+  --neon-blue: #00f0ff;
+  --neon-green: #39ff14;
+  --neon-red: #ff2d95;
+}
+html,body,#root { height:100%; }
+body{
+  background: radial-gradient(600px 300px at 10% 10%, rgba(0,240,255,0.04), transparent 10%), linear-gradient(180deg,#02040a 0%, #06101a 100%);
+  color:white;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', Roboto, Helvetica, Arial;
+  -webkit-font-smoothing:antialiased;
+  background-color: var(--cyber-dark);
+}
+.hud{ padding:0.75rem; border-radius:0.5rem; border:1px solid rgba(0,240,255,0.12); background:rgba(0,0,0,0.4); font-size:0.875rem; }
+.glow{ color:var(--neon-blue); text-shadow:0 0 8px rgba(0,240,255,0.6); }
+.app-map{ height:100vh; width:100%; }
